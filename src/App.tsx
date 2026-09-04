@@ -51,6 +51,7 @@ export default function App() {
   const [authError, setAuthError] = useState("");
 
   // Stream State
+  const [rtmpServer, setRtmpServer] = useState(() => localStorage.getItem("rtmpServer") || "rtmp://a.rtmp.youtube.com/live2");
   const [streamKey, setStreamKey] = useState(() => localStorage.getItem("streamKey") || "");
   const [showStreamKey, setShowStreamKey] = useState(false);
   const [title, setTitle] = useState(() => localStorage.getItem("streamTitle") || "");
@@ -87,12 +88,13 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    localStorage.setItem("rtmpServer", rtmpServer);
     localStorage.setItem("streamKey", streamKey);
     localStorage.setItem("streamTitle", title);
     localStorage.setItem("streamDesc", description);
     localStorage.setItem("selectedVideo", selectedVideo);
     localStorage.setItem("platform", platform);
-  }, [streamKey, title, description, selectedVideo, platform]);
+  }, [rtmpServer, streamKey, title, description, selectedVideo, platform]);
 
   useEffect(() => {
     if (logContainerRef.current) {
@@ -161,11 +163,12 @@ export default function App() {
     }
 
     try {
+      const finalRtmpUrl = rtmpServer.endsWith('/') ? `${rtmpServer}${streamKey}` : `${rtmpServer}/${streamKey}`;
       const res = await fetch("/api/stream/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          streamKey, 
+          rtmpUrl: finalRtmpUrl, 
           videoPath: selectedVideo, 
           loop: isLooping,
           userId: user.uid,
@@ -334,13 +337,22 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Stream Key / RTMP URL</label>
-                        <div className="relative group">
-                          <input type={showStreamKey ? "text" : "password"} value={streamKey} onChange={(e) => setStreamKey(e.target.value)} placeholder="rtmp://a.rtmp.youtube.com/live2/xxxx-xxxx" className="w-full bg-[#1c1c1f] border border-white/5 rounded-2xl px-5 py-4 outline-none focus:border-violet-500/50 transition-all text-sm pr-24 placeholder:text-gray-600" />
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                            {streamKey && <button onClick={() => setStreamKey("")} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-500"><X className="w-4 h-4" /></button>}
-                            <button onClick={() => setShowStreamKey(!showStreamKey)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400">{showStreamKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">RTMP Server URL</label>
+                          <div className="relative group">
+                            <input type="text" value={rtmpServer} onChange={(e) => setRtmpServer(e.target.value)} placeholder="rtmp://a.rtmp.youtube.com/live2" className="w-full bg-[#1c1c1f] border border-white/5 rounded-2xl px-5 py-4 outline-none focus:border-violet-500/50 transition-all text-sm placeholder:text-gray-600" />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex gap-2">
+                              <button onClick={() => setRtmpServer("rtmp://a.rtmp.youtube.com/live2")} className="text-[10px] bg-white/5 hover:bg-white/10 px-2 py-1 rounded text-gray-400 font-bold uppercase transition-colors">YT</button>
+                              <button onClick={() => setRtmpServer("rtmps://live-api-s.facebook.com:443/rtmp/")} className="text-[10px] bg-white/5 hover:bg-white/10 px-2 py-1 rounded text-gray-400 font-bold uppercase transition-colors">FB</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Stream Key</label>
+                          <div className="relative group">
+                            <input type={showStreamKey ? "text" : "password"} value={streamKey} onChange={(e) => setStreamKey(e.target.value)} placeholder="xxxx-xxxx-xxxx-xxxx" className="w-full bg-[#1c1c1f] border border-white/5 rounded-2xl px-5 py-4 outline-none focus:border-violet-500/50 transition-all text-sm pr-12 placeholder:text-gray-600" />
+                            <button onClick={() => setShowStreamKey(!showStreamKey)} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400">{showStreamKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                           </div>
                         </div>
                       </div>

@@ -6,18 +6,21 @@ import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import { initializeApp, getApps, App } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 // Initialize Firebase Admin
 let firebaseApp: App;
 if (getApps().length === 0) {
   firebaseApp = initializeApp({
-    projectId: "lucky-rookery-d3bk6"
+    projectId: "lucky-rookery-d3bk6",
+    storageBucket: "lucky-rookery-d3bk6.firebasestorage.app"
   });
 } else {
   firebaseApp = getApps()[0] as App;
 }
 
 const db = getFirestore(firebaseApp, "ai-studio-streamloop247-1977a596-79bc-4af1-b3e2-b74b9bc7a330");
+const bucket = getStorage(firebaseApp).bucket();
 const app = express();
 const PORT = 3000;
 
@@ -74,45 +77,90 @@ app.get("/api/videos", async (req, res) => {
   }
 });
 
-// API: Upload video
+// API: Upload video to Firebase Storage
 app.post("/api/upload", upload.single("video"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
   const userId = req.body.userId;
-  if (userId) {
-    try {
+  const fileName = `${Date.now()}-${req.file.originalname}`;
+  const filePath = req.file.path;
+
+  try {
+    // Upload to Firebase Storage
+    const [file] = await bucket.upload(filePath, {
+      destination: `videos/${userId || "anonymous"}/${fileName}`,
+      metadata: {
+        contentType: req.file.mimetype,
+      },
+    });
+
+    // Make the file public (optional, but good for preview)
+    await file.makePublic();
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+
+    if (userId) {
       await db.collection("videos").add({
         userId,
         name: req.file.originalname,
-        path: req.file.filename,
+        path: fileName,
+        url: publicUrl,
+        storagePath: file.name,
         uploadedAt: FieldValue.serverTimestamp()
       });
-    } catch (error) {
-      console.error("Failed to save video metadata", error);
     }
-  }
 
-  res.json({ message: "File uploaded successfully", filename: req.file.filename });
+    // Keep local file for immediate streaming (optional)
+    // or we can just send the filename
+    res.json({ 
+      message: "File uploaded to Cloud Storage", 
+      filename: fileName,
+      url: publicUrl 
+    });
+  } catch (error) {
+    console.error("Cloud Storage Upload Failed:", error);
+    res.status(500).json({ error: "Failed to upload to Cloud Storage" });
+  } finally {
+    // Optional: Clean up local file after cloud upload if you want to save server space
+    // fs.unlinkSync(filePath);
+  }
 });
 
 // API: Start Stream
 app.post("/api/stream/start", async (req, res) => {
-  const { streamKey, videoPath, loop = true, userId, title, platform } = req.body;
+  const { rtmpUrl, videoPath, loop = true, userId, title, platform } = req.body;
 
-  if (!streamKey || !videoPath) {
-    return res.status(400).json({ error: "Missing stream key or video path" });
+  if (!rtmpUrl || !videoPath) {
+    return res.status(400).json({ error: "Missing RTMP URL or video path" });
   }
 
   if (currentStream) {
     return res.status(400).json({ error: "A stream is already running" });
   }
 
-  const fullVideoPath = path.join(process.cwd(), "uploads", videoPath);
+  const localVideoPath = path.join(process.cwd(), "uploads", videoPath);
+  let finalPath = localVideoPath;
+
+  // If local file doesn't exist, try to download from cloud if we have a record
+  if (!fs.existsSync(localVideoPath)) {
+    try {
+      const snapshot = await db.collection("videos").where("path", "==", videoPath).limit(1).get();
+      if (!snapshot.empty) {
+        const videoData = snapshot.docs[0].data();
+        if (videoData.storagePath) {
+          addLog(`Downloading ${videoPath} from Cloud Storage...`);
+          await bucket.file(videoData.storagePath).download({ destination: localVideoPath });
+          addLog("Download complete.");
+        }
+      }
+    } catch (err) {
+      console.error("Cloud sync failed:", err);
+    }
+  }
   
-  if (!fs.existsSync(fullVideoPath)) {
-    return res.status(404).json({ error: "Video file not found" });
+  if (!fs.existsSync(finalPath)) {
+    return res.status(404).json({ error: "Video file not found locally or in cloud" });
   }
 
   addLog(`Starting stream for ${videoPath} (Loop: ${loop})...`);
@@ -123,21 +171,23 @@ app.post("/api/stream/start", async (req, res) => {
       inputOptions.push("-stream_loop -1");
     }
 
-    currentStream = ffmpeg(fullVideoPath)
+    currentStream = ffmpeg(finalPath)
       .inputOptions(inputOptions)
       .outputOptions([
         "-c:v libx264",
         "-preset veryfast",
+        "-tune zerolatency",
+        "-b:v 3000k",
         "-maxrate 3000k",
         "-bufsize 6000k",
         "-pix_fmt yuv420p",
-        "-g 50",
+        "-g 60",
         "-c:a aac",
         "-b:a 128k",
         "-ar 44100",
         "-f flv"
       ])
-      .output(streamKey)
+      .output(rtmpUrl)
       .on("start", async (commandLine) => {
         addLog("FFmpeg command: " + commandLine);
         addLog("Stream started successfully.");
