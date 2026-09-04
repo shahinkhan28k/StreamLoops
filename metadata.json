@@ -1,0 +1,6 @@
+{
+  "name": "StreamLoop 24/7",
+  "description": "A self-hosted 24/7 video streaming application using Node.js, Express, and FFmpeg.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

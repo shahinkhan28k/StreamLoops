@@ -1,0 +1,23 @@
+{
+  "collections": {
+    "users": {
+      "id": "string",
+      "email": "string",
+      "createdAt": "timestamp"
+    },
+    "videos": {
+      "userId": "string",
+      "name": "string",
+      "path": "string",
+      "uploadedAt": "timestamp"
+    },
+    "streams": {
+      "id": "string",
+      "userId": "string",
+      "title": "string",
+      "platform": "string",
+      "isStreaming": "boolean",
+      "startedAt": "timestamp"
+    }
+  }
+}
