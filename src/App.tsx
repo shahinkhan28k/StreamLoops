@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { 
   Upload, Play, Square, Video, Terminal, AlertCircle, 
   CheckCircle2, Loader2, ChevronDown, Eye, EyeOff, X, 
-  Home, Radio, PlaySquare, Settings, Share2, Info, LogOut, Mail, Lock, User
+  Home, Radio, PlaySquare, Settings, Share2, Info, LogOut, Mail, Lock, User, Trash2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { auth, db } from "./lib/firebase";
@@ -19,8 +19,11 @@ import { collection, query, where, onSnapshot, doc, getDoc, setDoc } from "fireb
 import { useAuthState } from "react-firebase-hooks/auth";
 
 interface VideoFile {
+  id: string | null;
   name: string;
   path: string;
+  url?: string;
+  storagePath?: string;
 }
 
 interface ActiveStream {
@@ -148,6 +151,25 @@ export default function App() {
       console.error("Upload failed", error);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const deleteVideo = async (videoId: string | null, videoPath: string) => {
+    if (!confirm("Are you sure you want to delete this video? It will be removed from Cloud Storage as well.")) return;
+    
+    try {
+      const res = await fetch(`/api/videos/${videoId}?path=${videoPath}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        fetchVideos();
+        if (selectedVideo === videoPath) setSelectedVideo("");
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete video");
+      }
+    } catch (error) {
+      console.error("Delete request failed", error);
     }
   };
 
@@ -472,10 +494,19 @@ export default function App() {
                       </div>
                     </div>
                     <div className="p-5 flex items-center justify-between">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="font-bold text-sm truncate">{vid.name}</p>
-                        <p className="text-[10px] text-gray-600 uppercase font-black tracking-widest mt-1">Local Storage</p>
+                        <p className="text-[10px] text-gray-600 uppercase font-black tracking-widest mt-1">
+                          {vid.id ? "Cloud Storage" : "Local Storage"}
+                        </p>
                       </div>
+                      <button 
+                        onClick={() => deleteVideo(vid.id, vid.path)}
+                        className="p-2 text-gray-700 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                        title="Delete video"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}

@@ -39,7 +39,12 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 1024 * 1024 * 1024 * 2, // 2GB limit
+  }
+});
 
 app.use(express.json());
 
@@ -58,22 +63,75 @@ const addLog = (msg: string) => {
 app.get("/api/videos", async (req, res) => {
   const userId = req.query.userId as string;
   try {
+    let query: any = db.collection("videos");
     if (userId) {
-      const snapshot = await db.collection("videos").where("userId", "==", userId).get();
-      const videos = snapshot.docs.map(doc => doc.data());
-      // If we have firestore records, return them
-      if (videos.length > 0) return res.json(videos);
+      query = query.where("userId", "==", userId);
+    }
+    const snapshot = await query.get();
+    const videos = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    // Also check local storage for files not in DB (backward compatibility)
+    const uploadPath = path.join(process.cwd(), "uploads");
+    if (fs.existsSync(uploadPath)) {
+      const files = fs.readdirSync(uploadPath);
+      const videoFiles = files.filter(f => /\.(mp4|mkv|avi|mov)$/i.test(f));
+      
+      // Add local files if they aren't already in the list
+      videoFiles.forEach(f => {
+        if (!videos.find((v: any) => v.path === f)) {
+          videos.push({ name: f, path: f, id: null });
+        }
+      });
+    }
+    
+    res.json(videos);
+  } catch (error) {
+    console.error("Failed to fetch videos", error);
+    res.status(500).json({ error: "Failed to fetch videos" });
+  }
+});
+
+// API: Delete video
+app.delete("/api/videos/:id", async (req, res) => {
+  const videoId = req.params.id;
+  const videoPath = req.query.path as string;
+
+  try {
+    // 1. Delete from Firestore if ID provided
+    if (videoId !== "null" && videoId !== "undefined") {
+      const docRef = db.collection("videos").doc(videoId);
+      const doc = await docRef.get();
+      
+      if (doc.exists) {
+        const data = doc.data();
+        // Delete from Cloud Storage
+        if (data?.storagePath) {
+          try {
+            await bucket.file(data.storagePath).delete();
+          } catch (e) {
+            console.error("Cloud storage delete failed", e);
+          }
+        }
+        // Delete from local filesystem
+        if (data?.path) {
+          const localPath = path.join(process.cwd(), "uploads", data.path);
+          if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+        }
+        await docRef.delete();
+      }
+    } else if (videoPath) {
+      // Delete just local file if no Firestore ID
+      const localPath = path.join(process.cwd(), "uploads", videoPath);
+      if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
     }
 
-    const uploadPath = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadPath)) {
-      return res.json([]);
-    }
-    const files = fs.readdirSync(uploadPath);
-    const videoFiles = files.filter(f => /\.(mp4|mkv|avi|mov)$/i.test(f));
-    res.json(videoFiles.map(f => ({ name: f, path: f })));
+    res.json({ message: "Video deleted successfully" });
   } catch (error) {
-    res.status(500).json({ error: "Failed to list videos" });
+    console.error("Delete failed", error);
+    res.status(500).json({ error: "Failed to delete video" });
   }
 });
 
